@@ -11,16 +11,20 @@ st.title("📈 Advanced Stock Analytics Platform")
 # --- Sidebar Inputs ---
 st.sidebar.header("Dashboard Settings")
 
-# 1. Date Parameters (Moved to the top)
+# Create an empty placeholder container at the very top of the sidebar
+ticker_container = st.sidebar.container()
+
+st.sidebar.markdown("---")
+
+# 1. Date Parameters
 end_date = datetime.today()
 start_date_default = end_date - timedelta(days=365)
 start_date = st.sidebar.date_input("Start Date", value=start_date_default)
 end_date_input = st.sidebar.date_input("End Date", value=end_date)
 
-# --- Visual Separator (Optional clean line in the sidebar) ---
 st.sidebar.markdown("---")
 
-# 2. Choose Mode (Now positioned at the bottom of the settings tab)
+# 2. Choose Mode
 app_mode = st.sidebar.radio("Select Dashboard Mode", ["Single Ticker Lookup", "Multi-Ticker Comparison"])
 
 # --- Manual Refresh Button ---
@@ -37,15 +41,15 @@ def load_single_data(symbol, start, end):
 
 @st.cache_data(ttl=60)
 def load_multi_data(symbols, start, end):
-    # Downloads closing prices for all tickers at once
     df_multi = yf.download(symbols, start=start, end=end)['Close']
     return pd.DataFrame(df_multi)
 
 # =====================================================================
-# MODE 1: SINGLE TICKER LOOKUP (Your original dashboard)
+# MODE 1: SINGLE TICKER LOOKUP
 # =====================================================================
 if app_mode == "Single Ticker Lookup":
-    ticker = st.sidebar.text_input("Enter Stock Ticker", value="AAPL").upper()
+    # Inject the Single Ticker input into the top container
+    ticker = ticker_container.text_input("Enter Stock Ticker", value="AAPL").upper()
     
     try:
         with st.spinner(f"Fetching data for {ticker}..."):
@@ -95,10 +99,9 @@ else:
     st.subheader("⚔️ Relative Performance Comparison")
     st.markdown("Type and add multiple tickers below to compare their cumulative returns over time.")
     
-    # Text input accepting comma-separated tickers
-    tickers_input = st.text_input("Enter Tickers (separated by commas)", value="AAPL, NVDA, MSFT, SPY")
+    # Inject the Multi-Ticker input into the top container instead
+    tickers_input = ticker_container.text_input("Enter Tickers (separated by commas)", value="AAPL, NVDA, MSFT, SPY")
     
-    # Clean input list
     ticker_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     
     if ticker_list:
@@ -107,18 +110,12 @@ else:
                 df_multi = load_multi_data(ticker_list, start_date, end_date_input)
             
             if not df_multi.empty:
-                # Handle single vs multiple dataframe column structure safely
                 if isinstance(df_multi, pd.Series):
                     df_multi = df_multi.to_frame(name=ticker_list[0])
                 
-                # Drop rows with entirely missing values to align start dates cleanly
                 df_multi = df_multi.dropna(how='all')
-                
-                # Performance calculation: Normalized percentage change from the first available row
-                # Fill missing individual data points gracefully
                 df_normalized = (df_multi.ffill().bfill() / df_multi.ffill().bfill().iloc[0] - 1) * 100
                 
-                # Build Comparison Plotly Chart
                 comp_fig = go.Figure()
                 for crypto_or_stock in df_normalized.columns:
                     comp_fig.add_trace(go.Scatter(
@@ -136,12 +133,11 @@ else:
                     hovermode="x unified",
                     height=600,
                     margin=dict(l=20, r=20, t=30, b=20),
-                    yaxis=dict(tickformat="+.1f%") # Appends percentage signs to the axis bounds cleanly
+                    yaxis=dict(tickformat="+.1f%")
                 )
                 
                 st.plotly_chart(comp_fig, use_container_width=True)
                 
-                # Summary table of overall returns
                 st.subheader("Performance Summary Breakdown")
                 final_returns = df_normalized.iloc[-1]
                 summary_data = []
