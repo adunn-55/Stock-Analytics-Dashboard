@@ -11,14 +11,17 @@ st.title("📈 Advanced Stock Analytics Platform")
 # --- Sidebar Inputs ---
 st.sidebar.header("Dashboard Settings")
 
-# 1. Choose Mode
-app_mode = st.sidebar.radio("Select Dashboard Mode", ["Single Ticker Lookup", "Multi-Ticker Comparison"])
-
-# 2. Date Parameters
+# 1. Date Parameters (Moved to the top)
 end_date = datetime.today()
 start_date_default = end_date - timedelta(days=365)
 start_date = st.sidebar.date_input("Start Date", value=start_date_default)
 end_date_input = st.sidebar.date_input("End Date", value=end_date)
+
+# --- Visual Separator (Optional clean line in the sidebar) ---
+st.sidebar.markdown("---")
+
+# 2. Choose Mode (Now positioned at the bottom of the settings tab)
+app_mode = st.sidebar.radio("Select Dashboard Mode", ["Single Ticker Lookup", "Multi-Ticker Comparison"])
 
 # --- Manual Refresh Button ---
 if st.sidebar.button("🔄 Force Live Refresh"):
