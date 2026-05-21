@@ -8,6 +8,16 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Stock Analytics Dashboard", layout="wide")
 st.title("📈 Advanced Stock Analytics Platform")
 
+# --- Initialize Session States for Change Tracking ---
+if 'last_ticker' not in st.session_state:
+    st.session_state['last_ticker'] = "AAPL"
+if 'last_timeframe' not in st.session_state:
+    st.session_state['last_timeframe'] = "1Y"
+if 'last_multi_tickers' not in st.session_state:
+    st.session_state['last_multi_tickers'] = "AAPL, NVDA, MSFT, SPY"
+if 'data_dirty' not in st.session_state:
+    st.session_state['data_dirty'] = False
+
 # --- Sidebar Inputs ---
 st.sidebar.header("Dashboard Settings")
 
@@ -16,7 +26,7 @@ ticker_container = st.sidebar.container()
 
 st.sidebar.markdown("---")
 
-# 1. Date Parameters (Acts as custom manual override)
+# 1. Date Parameters (Manual Override)
 st.sidebar.subheader("Custom Date Filter")
 use_custom_dates = st.sidebar.checkbox("Use Custom Dates Instead", value=False)
 
@@ -27,21 +37,19 @@ sidebar_end = st.sidebar.date_input("End Date", value=end_date, disabled=not use
 
 st.sidebar.markdown("---")
 
-# 2. Choose Mode (Cleanly positioned at the bottom of the sidebar panel)
+# 2. Choose Mode (INSTANT TOGGLE - No Button Required)
 app_mode = st.sidebar.radio("Select Dashboard Mode", ["Single Ticker Lookup", "Multi-Ticker Comparison"])
 
 st.sidebar.markdown("---")
-# 3. Action Trigger (Prevents automated API spamming while typing)
-run_analysis = st.sidebar.button("🔍 Run Financial Analysis", use_container_width=True)
+# 3. Action Trigger (Only flashes when core data requests change)
+run_analysis = st.sidebar.button("🔍 Fetch & Update Data", use_container_width=True)
 
 # --- Helper Functions with Native Adaptive Resolution ---
-@st.cache_data(ttl=3600)  # 1-hour memory cache protects shared cloud IP limits
+@st.cache_data(ttl=3600)
 def load_single_data(symbol, start, end):
-    # Force yfinance to group columns by the ticker name to create a predictable matrix
     stock_data = yf.download(symbol, start=start, end=end, interval="1d", group_by="ticker")
     info = yf.Ticker(symbol).info
     
-    # Safely isolate the data for our target ticker symbol, avoiding MultiIndex structural decay
     if isinstance(stock_data.columns, pd.MultiIndex):
         if symbol in stock_data.columns.get_level_values(0):
             df_cleaned = stock_data[symbol].copy()
@@ -63,55 +71,57 @@ def load_multi_data(symbols, start, end):
 # MODE 1: SINGLE TICKER LOOKUP
 # =====================================================================
 if app_mode == "Single Ticker Lookup":
-    ticker = ticker_container.text_input("Enter Stock Ticker", value="AAPL").upper()
+    ticker = ticker_container.text_input("Enter Stock Ticker", value=st.session_state['last_ticker']).upper()
     
     st.markdown("---")
     st.subheader("Interactive Price Chart")
     
-    # Grid alignment for graph customizers
     time_col1, time_col2 = st.columns([2, 3])
-    
     with time_col1:
+        # INSTANT TOGGLE - Changing from Candlestick to Line happens immediately
         chart_type = st.radio("Chart Type", ["Candlestick", "Line"], horizontal=True, label_visibility="collapsed")
         
     with time_col2:
         timeframe = st.segmented_control(
             "Timeframe",
             options=["1M", "YTD", "1Y", "5Y", "MAX"],
-            default="1Y",
+            default=st.session_state['last_timeframe'],
             label_visibility="collapsed"
         )
 
-    # Dynamic Timeframe Calculations
+    # State Change Detection: Did they alter the ticker or the timeframe button?
+    if ticker != st.session_state['last_ticker'] or timeframe != st.session_state['last_timeframe']:
+        st.session_state['data_dirty'] = True
+
+    # Calculate Timeframe
     now = datetime.today()
-    
     if use_custom_dates:
         start_date = sidebar_start
         end_date_input = sidebar_end
     else:
         end_date_input = now
-        if timeframe == "1M":
-            start_date = now - timedelta(days=30)
-        elif timeframe == "YTD":
-            start_date = datetime(now.year, 1, 1)
-        elif timeframe == "1Y":
-            start_date = now - timedelta(days=365)
-        elif timeframe == "5Y":
-            start_date = now - timedelta(days=5*365)
-        else:
-            start_date = datetime(1970, 1, 1)
+        if timeframe == "1M": start_date = now - timedelta(days=30)
+        elif timeframe == "YTD": start_date = datetime(now.year, 1, 1)
+        elif timeframe == "1Y": start_date = now - timedelta(days=365)
+        elif timeframe == "5Y": start_date = now - timedelta(days=5*365)
+        else: start_date = datetime(1970, 1, 1)
 
-    # Execution requires clicking the sidebar analysis button or first load
-    if run_analysis or 'initialized' not in st.session_state:
-        st.session_state['initialized'] = True
+    # Process Data Loading
+    if run_analysis or not st.session_state['data_dirty']:
+        # If they click update, synchronize the states and lock it down
+        if run_analysis:
+            st.session_state['last_ticker'] = ticker
+            st.session_state['last_timeframe'] = timeframe
+            st.session_state['data_dirty'] = False
+            
         try:
-            with st.spinner(f"Fetching data for {ticker}..."):
-                df, stock_info = load_single_data(ticker, start_date, end_date_input)
+            with st.spinner(f"Processing structural matrices for {ticker}..."):
+                df, stock_info = load_single_data(st.session_state['last_ticker'], start_date, end_date_input)
             
             if df.empty:
                 st.warning("No data returned for this asset ticker sequence.")
             else:
-                # Financial Health KPIs
+                # KPIs
                 current_price = stock_info.get('currentPrice', df['Close'].iloc[-1].item() if not df.empty else 0)
                 prev_close = stock_info.get('previousClose', df['Close'].iloc[-2].item() if len(df) > 1 else current_price)
                 price_change = current_price - prev_close
@@ -119,78 +129,42 @@ if app_mode == "Single Ticker Lookup":
                 currency = stock_info.get('currency', 'USD')
 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Company Name", stock_info.get('longName', ticker))
+                col1.metric("Company Name", stock_info.get('longName', st.session_state['last_ticker']))
                 col2.metric("Current Price", f"{current_price:,.2f} {currency}", f"{price_change:+.2f} ({pct_change:+.2f}%)")
                 col3.metric("Market Cap", f"${stock_info.get('marketCap', 0):,}")
                 col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {currency}")
 
-                # --- Main Chart Render ---
+                # Main Render Panel
                 fig = go.Figure()
-                
-                # CRITICAL STRUCTURAL FIX: Convert index to true Datetime and completely strip timezone offsets
                 timeline_index = pd.to_datetime(df.index).tz_localize(None)
                 
                 if chart_type == "Candlestick":
                     fig.add_trace(go.Candlestick(
-                        x=timeline_index, 
-                        open=df['Open'].squeeze(), 
-                        high=df['High'].squeeze(), 
-                        low=df['Low'].squeeze(), 
-                        close=df['Close'].squeeze(), 
-                        name="Market Data"
+                        x=timeline_index, open=df['Open'].squeeze(), high=df['High'].squeeze(),
+                        low=df['Low'].squeeze(), close=df['Close'].squeeze(), name="Market Data"
                     ))
                 else:
                     fig.add_trace(go.Scatter(
-                        x=timeline_index, 
-                        y=df['Close'].squeeze(), 
-                        mode='lines', 
-                        name='Close Price', 
-                        line=dict(color='#00FFCC', width=2)
+                        x=timeline_index, y=df['Close'].squeeze(), mode='lines',
+                        name='Close Price', line=dict(color='#00FFCC', width=2)
                     ))
 
-                # --- DYNAMIC TICK INTERVAL ENGINE ---
-                if timeframe == "1M" and not use_custom_dates:
-                    xaxis_config = dict(
-                        type='date',
-                        tickmode='linear',
-                        dtick=86400000 * 7,    # Forces exactly 1 label every 7 days
-                        tickformat='%b %d',    # Clear string format matching Yahoo Finance
-                        rangebreaks=[dict(bounds=["sat", "mon"])]
-                    )
-                elif timeframe == "YTD" and not use_custom_dates:
-                    xaxis_config = dict(
-                        type='date',
-                        tickmode='linear',
-                        dtick="M1",            # Force exactly 1 label per month
-                        tickformat='%b %y',    
-                        rangebreaks=[dict(bounds=["sat", "mon"])]
-                    )
+                # Dynamic Timeline Intervals
+                target_tf = st.session_state['last_timeframe']
+                if target_tf == "1M" and not use_custom_dates:
+                    xaxis_config = dict(type='date', tickmode='linear', dtick=86400000 * 7, tickformat='%b %d', rangebreaks=[dict(bounds=["sat", "mon"])])
+                elif target_tf == "YTD" and not use_custom_dates:
+                    xaxis_config = dict(type='date', tickmode='linear', dtick="M1", tickformat='%b %y', rangebreaks=[dict(bounds=["sat", "mon"])])
                 else:
-                    xaxis_config = dict(
-                        type='date',
-                        tickmode='auto',
-                        nticks=8,
-                        rangebreaks=[dict(bounds=["sat", "mon"])]
-                    )
+                    xaxis_config = dict(type='date', tickmode='auto', nticks=8, rangebreaks=[dict(bounds=["sat", "mon"])])
 
-                fig.update_layout(
-                    template="plotly_dark", 
-                    xaxis_rangeslider_visible=False, 
-                    margin=dict(l=20, r=20, t=10, b=20), 
-                    height=500,
-                    xaxis=xaxis_config
-                )
+                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=20, r=20, t=10, b=20), height=500, xaxis=xaxis_config)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Trading Volume
+                # Volume Panel
                 st.subheader("Trading Volume")
                 vol_fig = go.Figure(data=[go.Bar(x=timeline_index, y=df['Volume'].squeeze(), marker_color='royalblue')])
-                vol_fig.update_layout(
-                    template="plotly_dark", 
-                    height=200, 
-                    margin=dict(l=20, r=20, t=10, b=10),
-                    xaxis=xaxis_config
-                )
+                vol_fig.update_layout(template="plotly_dark", height=200, margin=dict(l=20, r=20, t=10, b=10), xaxis=xaxis_config)
                 st.plotly_chart(vol_fig, use_container_width=True)
 
                 st.markdown("---")
@@ -198,9 +172,9 @@ if app_mode == "Single Ticker Lookup":
                 st.write(stock_info.get('longBusinessSummary', "No summary available."))
 
         except Exception as e:
-            st.error(f"Error loading data for ticker '{ticker}'. Technical details: {e}")
+            st.error(f"Error executing viewport load: {e}")
     else:
-        st.info("💡 Adjust your dashboard criteria in the sidebar and click 'Run Financial Analysis' to pull fresh market matrices.")
+        st.info(f"💡 Timeframe settings changed! Click 'Fetch & Update Data' in the sidebar to retrieve the updated timeline for {ticker}.")
 
 # =====================================================================
 # MODE 2: MULTI-TICKER COMPARISON
@@ -209,9 +183,12 @@ else:
     st.subheader("⚔️ Relative Performance Comparison")
     st.markdown("Type and add multiple tickers below to compare their cumulative returns over time.")
     
-    tickers_input = ticker_container.text_input("Enter Tickers (separated by commas)", value="AAPL, NVDA, MSFT, SPY")
+    tickers_input = ticker_container.text_input("Enter Tickers (separated by commas)", value=st.session_state['last_multi_tickers'])
     ticker_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     
+    if tickers_input != st.session_state['last_multi_tickers']:
+        st.session_state['data_dirty'] = True
+
     if use_custom_dates:
         start_date = sidebar_start
         end_date_input = sidebar_end
@@ -219,8 +196,11 @@ else:
         end_date_input = datetime.today()
         start_date = end_date_input - timedelta(days=365)
         
-    if run_analysis or 'initialized' not in st.session_state:
-        st.session_state['initialized'] = True
+    if run_analysis or not st.session_state['data_dirty']:
+        if run_analysis:
+            st.session_state['last_multi_tickers'] = tickers_input
+            st.session_state['data_dirty'] = False
+            
         if ticker_list:
             try:
                 with st.spinner("Fetching comparative market data..."):
@@ -241,13 +221,8 @@ else:
                         comp_fig.add_trace(go.Scatter(x=df_normalized.index, y=df_normalized[asset], mode='lines', name=asset, line=dict(width=2)))
                     
                     comp_fig.update_layout(
-                        template="plotly_dark", 
-                        xaxis_title="Date", 
-                        yaxis_title="Cumulative Return (%)", 
-                        hovermode="x unified", 
-                        height=600, 
-                        margin=dict(l=20, r=20, t=30, b=20), 
-                        yaxis=dict(tickformat="+.1f%")
+                        template="plotly_dark", xaxis_title="Date", yaxis_title="Cumulative Return (%)",
+                        hovermode="x unified", height=600, margin=dict(l=20, r=20, t=30, b=20), yaxis=dict(tickformat="+.1f%")
                     )
                     st.plotly_chart(comp_fig, use_container_width=True)
                     
@@ -257,10 +232,9 @@ else:
                     for asset in final_returns.index:
                         summary_data.append({"Ticker": asset, "Total Return Since Start Date": f"{final_returns[asset]:+.2f}%"})
                     st.table(pd.DataFrame(summary_data))
-                    
                 else:
                     st.warning("No data found for the provided symbols.")
             except Exception as e:
                 st.error(f"Error executing multi-ticker build: {e}")
     else:
-        st.info("💡 Click 'Run Financial Analysis' to compute normalized comparative paths.")
+        st.info("💡 Tickers changed! Click 'Fetch & Update Data' in the sidebar to generate the new comparative layout charts.")
