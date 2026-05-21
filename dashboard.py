@@ -149,9 +149,11 @@ if app_mode == "Single Ticker Lookup":
             margin=dict(l=20, r=20, t=10, b=20), 
             height=500,
             xaxis=dict(
-                type='category',  # Snaps candles sequentially, clipping weekend/overnight canvas space
-                nticks=10,         # Balances text density along the axis row
-                tickangle=-45
+                type='category',     # Keeps the gapless sequential candle layout
+                tickmode='auto',     # Tells Plotly to automatically sample and display a clean subset of dates
+                nticks=8,            # Strictly limits the maximum number of visible date labels to 8 (prevents crowding)
+                tickangle=-45,       # Tilts them slightly for a clean, professional financial terminal look
+                showticklabels=True  # Guarantees the labels stay visible instead of hiding
             )
         )
         st.plotly_chart(fig, use_container_width=True)
