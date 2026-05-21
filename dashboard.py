@@ -41,12 +41,11 @@ def load_single_data(symbol, start, end):
     stock_data = yf.download(symbol, start=start, end=end, interval="1d", group_by="ticker")
     info = yf.Ticker(symbol).info
     
-    # Safely isolate the data for our target ticker symbol
+    # Safely isolate the data for our target ticker symbol, avoiding MultiIndex structural decay
     if isinstance(stock_data.columns, pd.MultiIndex):
         if symbol in stock_data.columns.get_level_values(0):
             df_cleaned = stock_data[symbol].copy()
         else:
-            # Fallback if yfinance defaults to flat columns on specific asset classes
             df_cleaned = stock_data.copy()
             if isinstance(df_cleaned.columns, pd.MultiIndex):
                 df_cleaned.columns = df_cleaned.columns.get_level_values(0)
@@ -127,7 +126,9 @@ if app_mode == "Single Ticker Lookup":
 
                 # --- Main Chart Render ---
                 fig = go.Figure()
-                timeline_index = pd.to_datetime(df.index)
+                
+                # CRITICAL STRUCTURAL FIX: Convert index to true Datetime and completely strip timezone offsets
+                timeline_index = pd.to_datetime(df.index).tz_localize(None)
                 
                 if chart_type == "Candlestick":
                     fig.add_trace(go.Candlestick(
@@ -147,19 +148,37 @@ if app_mode == "Single Ticker Lookup":
                         line=dict(color='#00FFCC', width=2)
                     ))
 
+                # --- DYNAMIC TICK INTERVAL ENGINE ---
+                if timeframe == "1M" and not use_custom_dates:
+                    xaxis_config = dict(
+                        type='date',
+                        tickmode='linear',
+                        dtick=86400000 * 7,    # Forces exactly 1 label every 7 days
+                        tickformat='%b %d',    # Clear string format matching Yahoo Finance
+                        rangebreaks=[dict(bounds=["sat", "mon"])]
+                    )
+                elif timeframe == "YTD" and not use_custom_dates:
+                    xaxis_config = dict(
+                        type='date',
+                        tickmode='linear',
+                        dtick="M1",            # Force exactly 1 label per month
+                        tickformat='%b %y',    
+                        rangebreaks=[dict(bounds=["sat", "mon"])]
+                    )
+                else:
+                    xaxis_config = dict(
+                        type='date',
+                        tickmode='auto',
+                        nticks=8,
+                        rangebreaks=[dict(bounds=["sat", "mon"])]
+                    )
+
                 fig.update_layout(
                     template="plotly_dark", 
                     xaxis_rangeslider_visible=False, 
                     margin=dict(l=20, r=20, t=10, b=20), 
                     height=500,
-                    xaxis=dict(
-                        type='date',
-                        tickmode='auto',
-                        nticks=8,
-                        rangebreaks=[
-                            dict(bounds=["sat", "mon"])  # Slices out weekends cleanly
-                        ]
-                    )
+                    xaxis=xaxis_config
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -170,14 +189,7 @@ if app_mode == "Single Ticker Lookup":
                     template="plotly_dark", 
                     height=200, 
                     margin=dict(l=20, r=20, t=10, b=10),
-                    xaxis=dict(
-                        type='date',
-                        tickmode='auto',
-                        nticks=8,
-                        rangebreaks=[
-                            dict(bounds=["sat", "mon"])
-                        ]
-                    )
+                    xaxis=xaxis_config
                 )
                 st.plotly_chart(vol_fig, use_container_width=True)
 
