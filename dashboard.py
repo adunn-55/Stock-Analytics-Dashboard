@@ -85,20 +85,42 @@ if app_mode == "Single Ticker Lookup":
         end_date_input = sidebar_end
     else:
         end_date_input = now
-        if timeframe == "1D":
-            start_date = now - timedelta(days=1)
-            interval = "1m"  # 1-minute bars for fine-grained intraday tracking
-        elif timeframe == "1W":
-            start_date = now - timedelta(days=7)
-            interval = "2m"  # 2-minute bars for smooth weekly views
-        elif timeframe == "1M":
-            start_date = now - timedelta(days=30)
-        elif timeframe == "YTD":
-            start_date = datetime(now.year, 1, 1)
-        elif timeframe == "1Y":
-            start_date = now - timedelta(days=365)
-        elif timeframe == "5Y":
-            start_date = now - timedelta(days=5*365)
+       # --- Render Main Graph with Gap Protection ---
+        fig = go.Figure()
+        
+        # Convert index to strings so Plotly treats them as categorical labels (removes time/weekend gaps)
+        date_labels = df.index.strftime('%Y-%m-%d %H:%M') if interval in ["1m", "2m"] else df.index.strftime('%Y-%m-%d')
+        
+        if chart_type == "Candlestick":
+            fig.add_trace(go.Candlestick(
+                x=date_labels, 
+                open=df['Open'].squeeze(), 
+                high=df['High'].squeeze(), 
+                low=df['Low'].squeeze(), 
+                close=df['Close'].squeeze(), 
+                name="Market Data"
+            ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=date_labels, 
+                y=df['Close'].squeeze(), 
+                mode='lines', 
+                name='Close Price', 
+                line=dict(color='#00FFCC', width=2)
+            ))
+
+        fig.update_layout(
+            template="plotly_dark", 
+            xaxis_rangeslider_visible=False, 
+            margin=dict(l=20, r=20, t=10, b=20), 
+            height=500,
+            xaxis=dict(
+                type='category', # Forces Plotly to place dates side-by-side without chronological gaps
+                nticks=10,       # Prevents the X-axis labels from overcrowding and overlapping
+                tickangle=-45
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True)
         else: # MAX
             start_date = datetime(1970, 1, 1)
 
