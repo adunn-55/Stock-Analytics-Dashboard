@@ -37,14 +37,23 @@ run_analysis = st.sidebar.button("🔍 Run Financial Analysis", use_container_wi
 # --- Helper Functions with Native Adaptive Resolution ---
 @st.cache_data(ttl=3600)  # 1-hour memory cache protects shared cloud IP limits
 def load_single_data(symbol, start, end):
-    stock_data = yf.download(symbol, start=start, end=end, interval="1d")
-    
-    # --- FIXED: Modern, bulletproof method to strip single-ticker MultiIndexes ---
-    if isinstance(stock_data.columns, pd.MultiIndex):
-        stock_data.columns = stock_data.columns.droplevel(1)
-        
+    # Force yfinance to group columns by the ticker name to create a predictable matrix
+    stock_data = yf.download(symbol, start=start, end=end, interval="1d", group_by="ticker")
     info = yf.Ticker(symbol).info
-    return stock_data, info
+    
+    # Safely isolate the data for our target ticker symbol
+    if isinstance(stock_data.columns, pd.MultiIndex):
+        if symbol in stock_data.columns.get_level_values(0):
+            df_cleaned = stock_data[symbol].copy()
+        else:
+            # Fallback if yfinance defaults to flat columns on specific asset classes
+            df_cleaned = stock_data.copy()
+            if isinstance(df_cleaned.columns, pd.MultiIndex):
+                df_cleaned.columns = df_cleaned.columns.get_level_values(0)
+    else:
+        df_cleaned = stock_data.copy()
+        
+    return df_cleaned, info
 
 @st.cache_data(ttl=3600)
 def load_multi_data(symbols, start, end):
