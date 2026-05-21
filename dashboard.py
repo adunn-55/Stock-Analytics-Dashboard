@@ -44,6 +44,11 @@ def load_single_data(symbol, start, end, interval="1d"):
         stock_data = yf.download(symbol, period="5d", interval="2m")
     else:
         stock_data = yf.download(symbol, start=start, end=end, interval=interval)
+    
+    # --- CRITICAL FIX: Flatten Multi-Index Columns if present ---
+    if isinstance(stock_data.columns, pd.MultiIndex):
+        stock_data.columns = stock_data.columns.get_level_values(0)
+        
     info = yf.Ticker(symbol).info
     return stock_data, info
 
@@ -122,7 +127,7 @@ if app_mode == "Single Ticker Lookup":
         # --- Main Chart Render (Safe Sequential Categorical Labels) ---
         fig = go.Figure()
         
-        # Strip timezone data safely and build a string array for clean sequential x-axis alignment
+        # Build a string array for clean sequential x-axis alignment
         if interval in ["1m", "2m"]:
             x_axis_labels = df.index.strftime('%m/%d %H:%M')
         else:
@@ -158,6 +163,7 @@ if app_mode == "Single Ticker Lookup":
                 tickangle=-45
             )
         )
+        st.sidebar.markdown(f"**Data Points:** {len(df)}") # Debug line to confirm data length
         st.plotly_chart(fig, use_container_width=True)
 
         # Trading Volume
@@ -181,7 +187,7 @@ if app_mode == "Single Ticker Lookup":
         st.write(stock_info.get('longBusinessSummary', "No summary available."))
 
     except Exception as e:
-        st.error(f"Error loading data for ticker '{ticker}'. This timeframe might not contain active market indices.")
+        st.error(f"Error loading data for ticker '{ticker}'. Technical details: {e}")
 
 # =====================================================================
 # MODE 2: MULTI-TICKER COMPARISON
@@ -207,6 +213,10 @@ else:
                 df_multi = load_multi_data(ticker_list, start_date, end_date_input)
             
             if not df_multi.empty:
+                # Handle multi-index for closing prices if downloading multiple tickers
+                if isinstance(df_multi.columns, pd.MultiIndex):
+                    df_multi.columns = df_multi.columns.get_level_values(1) if 'Close' in df_multi.columns.get_level_values(0) else df_multi.columns.get_level_values(0)
+                
                 if isinstance(df_multi, pd.Series):
                     df_multi = df_multi.to_frame(name=ticker_list[0])
                 
