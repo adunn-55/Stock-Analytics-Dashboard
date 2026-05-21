@@ -116,12 +116,15 @@ if app_mode == "Single Ticker Lookup":
                 col3.metric("Market Cap", f"${stock_info.get('marketCap', 0):,}")
                 col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {currency}")
 
-                # --- Main Chart Render (Native Timeline Display) ---
+                # --- Main Chart Render ---
                 fig = go.Figure()
+                
+                # CRITICAL: Force the index to native datetime objects so rangebreaks map perfectly
+                timeline_index = pd.to_datetime(df.index)
                 
                 if chart_type == "Candlestick":
                     fig.add_trace(go.Candlestick(
-                        x=df.index,  # Use raw datetimes so Plotly understands chronological placement
+                        x=timeline_index, 
                         open=df['Open'].squeeze(), 
                         high=df['High'].squeeze(), 
                         low=df['Low'].squeeze(), 
@@ -130,7 +133,7 @@ if app_mode == "Single Ticker Lookup":
                     ))
                 else:
                     fig.add_trace(go.Scatter(
-                        x=df.index, 
+                        x=timeline_index, 
                         y=df['Close'].squeeze(), 
                         mode='lines', 
                         name='Close Price', 
@@ -143,26 +146,30 @@ if app_mode == "Single Ticker Lookup":
                     margin=dict(l=20, r=20, t=10, b=20), 
                     height=500,
                     xaxis=dict(
-                        type='date',          # Formats as an organic timeline layout
-                        tickformat='%b %d',   # Forces native display to show clean strings like "Apr 23"
+                        type='date',
                         tickmode='auto',
-                        nticks=8
+                        nticks=8,
+                        rangebreaks=[
+                            dict(bounds=["sat", "mon"])  # Seamlessly removes weekend blank blocks
+                        ]
                     )
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Trading Volume
                 st.subheader("Trading Volume")
-                vol_fig = go.Figure(data=[go.Bar(x=df.index, y=df['Volume'].squeeze(), marker_color='royalblue')])
+                vol_fig = go.Figure(data=[go.Bar(x=timeline_index, y=df['Volume'].squeeze(), marker_color='royalblue')])
                 vol_fig.update_layout(
                     template="plotly_dark", 
                     height=200, 
                     margin=dict(l=20, r=20, t=10, b=10),
                     xaxis=dict(
                         type='date',
-                        tickformat='%b %d',
                         tickmode='auto',
-                        nticks=8
+                        nticks=8,
+                        rangebreaks=[
+                            dict(bounds=["sat", "mon"])
+                        ]
                     )
                 )
                 st.plotly_chart(vol_fig, use_container_width=True)
