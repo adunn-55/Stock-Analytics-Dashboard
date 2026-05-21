@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
+import requests
 from datetime import datetime, timedelta
 
 # --- Page Configuration ---
@@ -35,26 +36,37 @@ if st.sidebar.button("🔄 Force Live Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-# --- Helper Functions with Adaptive Resolution ---
-@st.cache_data(ttl=60)
+# --- Helper Functions with Adaptive Resolution & Rate-Limit Shield ---
+@st.cache_data(ttl=900)  # 15-minute cache protects your app from triggering rate limits
 def load_single_data(symbol, start, end, interval="1d"):
-    if interval == "1m":
-        stock_data = yf.download(symbol, period="1d", interval="1m")
-    elif interval == "2m":
-        stock_data = yf.download(symbol, period="5d", interval="2m")
-    else:
-        stock_data = yf.download(symbol, start=start, end=end, interval=interval)
+    # Setup persistent browser spoof headers to pass Yahoo's scraper firewalls cleanly
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
     
-    # --- CRITICAL FIX: Flatten Multi-Index Columns if present ---
+    if interval == "1m":
+        stock_data = yf.download(symbol, period="1d", interval="1m", session=session)
+    elif interval == "2m":
+        stock_data = yf.download(symbol, period="5d", interval="2m", session=session)
+    else:
+        stock_data = yf.download(symbol, start=start, end=end, interval=interval, session=session)
+    
+    # Flatten Multi-Index Columns if present in recent yfinance iterations
     if isinstance(stock_data.columns, pd.MultiIndex):
         stock_data.columns = stock_data.columns.get_level_values(0)
         
-    info = yf.Ticker(symbol).info
+    info = yf.Ticker(symbol, session=session).info
     return stock_data, info
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=900)
 def load_multi_data(symbols, start, end):
-    df_multi = yf.download(symbols, start=start, end=end)['Close']
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    
+    df_multi = yf.download(symbols, start=start, end=end, session=session)['Close']
     return pd.DataFrame(df_multi)
 
 # =====================================================================
@@ -127,7 +139,7 @@ if app_mode == "Single Ticker Lookup":
         # --- Main Chart Render (Safe Sequential Categorical Labels) ---
         fig = go.Figure()
         
-        # Build a string array for clean sequential x-axis alignment
+        # Build a string array for clean sequential x-axis alignment without day gaps
         if interval in ["1m", "2m"]:
             x_axis_labels = df.index.strftime('%m/%d %H:%M')
         else:
@@ -163,7 +175,6 @@ if app_mode == "Single Ticker Lookup":
                 tickangle=-45
             )
         )
-        st.sidebar.markdown(f"**Data Points:** {len(df)}") # Debug line to confirm data length
         st.plotly_chart(fig, use_container_width=True)
 
         # Trading Volume
@@ -213,7 +224,7 @@ else:
                 df_multi = load_multi_data(ticker_list, start_date, end_date_input)
             
             if not df_multi.empty:
-                # Handle multi-index for closing prices if downloading multiple tickers
+                # Handle multi-index data mapping arrays for complex closing metrics
                 if isinstance(df_multi.columns, pd.MultiIndex):
                     df_multi.columns = df_multi.columns.get_level_values(1) if 'Close' in df_multi.columns.get_level_values(0) else df_multi.columns.get_level_values(0)
                 
