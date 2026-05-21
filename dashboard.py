@@ -129,4 +129,4 @@ if app_mode == "Single Ticker Lookup":
                 col1.metric("Company Name", stock_info.get('longName', st.session_state['last_ticker']))
                 col2.metric("Current Price", f"{current_price:,.2f} {currency}", f"{price_change:+.2f} ({pct_change:+.2f}%)")
                 col3.metric("Market Cap", f"${stock_info.get('marketCap', 0):,}")
-                col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {
+                col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {currency}")
