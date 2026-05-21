@@ -2,7 +2,6 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
-import requests
 from datetime import datetime, timedelta
 
 # --- Page Configuration ---
@@ -36,37 +35,26 @@ if st.sidebar.button("🔄 Force Live Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-# --- Helper Functions with Adaptive Resolution & Rate-Limit Shield ---
-@st.cache_data(ttl=900)  # 15-minute cache protects your app from triggering rate limits
+# --- Helper Functions with Native Adaptive Resolution ---
+@st.cache_data(ttl=900)  # 15-minute protective cache to prevent API spamming
 def load_single_data(symbol, start, end, interval="1d"):
-    # Setup persistent browser spoof headers to pass Yahoo's scraper firewalls cleanly
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    })
-    
     if interval == "1m":
-        stock_data = yf.download(symbol, period="1d", interval="1m", session=session)
+        stock_data = yf.download(symbol, period="1d", interval="1m")
     elif interval == "2m":
-        stock_data = yf.download(symbol, period="5d", interval="2m", session=session)
+        stock_data = yf.download(symbol, period="5d", interval="2m")
     else:
-        stock_data = yf.download(symbol, start=start, end=end, interval=interval, session=session)
+        stock_data = yf.download(symbol, start=start, end=end, interval=interval)
     
-    # Flatten Multi-Index Columns if present in recent yfinance iterations
+    # Flatten Multi-Index Columns safely if present
     if isinstance(stock_data.columns, pd.MultiIndex):
         stock_data.columns = stock_data.columns.get_level_values(0)
         
-    info = yf.Ticker(symbol, session=session).info
+    info = yf.Ticker(symbol).info
     return stock_data, info
 
 @st.cache_data(ttl=900)
 def load_multi_data(symbols, start, end):
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    })
-    
-    df_multi = yf.download(symbols, start=start, end=end, session=session)['Close']
+    df_multi = yf.download(symbols, start=start, end=end)['Close']
     return pd.DataFrame(df_multi)
 
 # =====================================================================
@@ -224,7 +212,6 @@ else:
                 df_multi = load_multi_data(ticker_list, start_date, end_date_input)
             
             if not df_multi.empty:
-                # Handle multi-index data mapping arrays for complex closing metrics
                 if isinstance(df_multi.columns, pd.MultiIndex):
                     df_multi.columns = df_multi.columns.get_level_values(1) if 'Close' in df_multi.columns.get_level_values(0) else df_multi.columns.get_level_values(0)
                 
