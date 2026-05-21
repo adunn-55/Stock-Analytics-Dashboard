@@ -158,9 +158,10 @@ if app_mode == "Single Ticker Lookup":
             height=500,
             xaxis=dict(
                 type='category',     # Forces layout to clip empty weekend spaces natively
-                tickmode='auto',     # Keeps label intervals nicely separated
-                nticks=8,            # Sets clear spacing limits
-                tickangle=-45
+                tickmode='auto',     # Explicitly tells Plotly to selectively sample text labels
+                nticks=8,            # Restricts the maximum number of text dates shown to 8 to avoid clutter
+                tickangle=-45,       # Angled for clean visualization layout
+                showticklabels=True  # Forces the selected sampled labels to remain visible
             )
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -176,7 +177,8 @@ if app_mode == "Single Ticker Lookup":
                 type='category',
                 tickmode='auto',
                 nticks=8,
-                tickangle=-45
+                tickangle=-45,
+                showticklabels=True
             )
         )
         st.plotly_chart(vol_fig, use_container_width=True)
