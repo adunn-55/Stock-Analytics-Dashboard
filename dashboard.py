@@ -143,17 +143,16 @@ if app_mode == "Single Ticker Lookup":
                 line=dict(color='#00FFCC', width=2)
             ))
 
-        fig.update_layout(
+   vol_fig.update_layout(
             template="plotly_dark", 
-            xaxis_rangeslider_visible=False, 
-            margin=dict(l=20, r=20, t=10, b=20), 
-            height=500,
+            height=200, 
+            margin=dict(l=20, r=20, t=10, b=10),
             xaxis=dict(
-                type='category',     # Keeps the gapless sequential candle layout
-                tickmode='auto',     # Tells Plotly to automatically sample and display a clean subset of dates
-                nticks=8,            # Strictly limits the maximum number of visible date labels to 8 (prevents crowding)
-                tickangle=-45,       # Tilts them slightly for a clean, professional financial terminal look
-                showticklabels=True  # Guarantees the labels stay visible instead of hiding
+                type='category',
+                tickmode='auto',
+                nticks=8,
+                tickangle=-45,
+                showticklabels=True
             )
         )
         st.plotly_chart(fig, use_container_width=True)
