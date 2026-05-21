@@ -39,9 +39,9 @@ run_analysis = st.sidebar.button("🔍 Run Financial Analysis", use_container_wi
 def load_single_data(symbol, start, end):
     stock_data = yf.download(symbol, start=start, end=end, interval="1d")
     
-    # Flatten Multi-Index Columns safely if present
+    # --- FIXED: Modern, bulletproof method to strip single-ticker MultiIndexes ---
     if isinstance(stock_data.columns, pd.MultiIndex):
-        stock_data.columns = stock_data.columns.get_level_values(0)
+        stock_data.columns = stock_data.columns.droplevel(1)
         
     info = yf.Ticker(symbol).info
     return stock_data, info
@@ -118,8 +118,6 @@ if app_mode == "Single Ticker Lookup":
 
                 # --- Main Chart Render ---
                 fig = go.Figure()
-                
-                # CRITICAL: Force the index to native datetime objects so rangebreaks map perfectly
                 timeline_index = pd.to_datetime(df.index)
                 
                 if chart_type == "Candlestick":
@@ -150,7 +148,7 @@ if app_mode == "Single Ticker Lookup":
                         tickmode='auto',
                         nticks=8,
                         rangebreaks=[
-                            dict(bounds=["sat", "mon"])  # Seamlessly removes weekend blank blocks
+                            dict(bounds=["sat", "mon"])  # Slices out weekends cleanly
                         ]
                     )
                 )
