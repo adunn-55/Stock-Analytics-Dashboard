@@ -46,9 +46,11 @@ app_mode = st.sidebar.radio("Select Dashboard Mode", ["Single Ticker Lookup", "M
 # --- Helper Functions with Native Adaptive Resolution ---
 @st.cache_data(ttl=3600)
 def load_single_data(symbol, start, end):
+    # Force yfinance to group columns by the ticker name to create a predictable matrix
     stock_data = yf.download(symbol, start=start, end=end, interval="1d", group_by="ticker")
     info = yf.Ticker(symbol).info
     
+    # Safely isolate the data for our target ticker symbol, avoiding MultiIndex structural decay
     if isinstance(stock_data.columns, pd.MultiIndex):
         if symbol in stock_data.columns.get_level_values(0):
             df_cleaned = stock_data[symbol].copy()
@@ -118,7 +120,7 @@ if app_mode == "Single Ticker Lookup":
             if df.empty:
                 st.warning("No data returned for this asset ticker sequence.")
             else:
-                # KPIs
+                # KPIs (Indentation completely locked and flattened to avoid block breaks)
                 current_price = stock_info.get('currentPrice', df['Close'].iloc[-1].item() if not df.empty else 0)
                 prev_close = stock_info.get('previousClose', df['Close'].iloc[-2].item() if len(df) > 1 else current_price)
                 price_change = current_price - prev_close
@@ -130,3 +132,108 @@ if app_mode == "Single Ticker Lookup":
                 col2.metric("Current Price", f"{current_price:,.2f} {currency}", f"{price_change:+.2f} ({pct_change:+.2f}%)")
                 col3.metric("Market Cap", f"${stock_info.get('marketCap', 0):,}")
                 col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {currency}")
+
+                # Main Render Panel
+                fig = go.Figure()
+                timeline_index = pd.to_datetime(df.index).tz_localize(None)
+                
+                if chart_type == "Candlestick":
+                    fig.add_trace(go.Candlestick(
+                        x=timeline_index, open=df['Open'].squeeze(), high=df['High'].squeeze(),
+                        low=df['Low'].squeeze(), close=df['Close'].squeeze(), name="Market Data"
+                    ))
+                else:
+                    fig.add_trace(go.Scatter(
+                        x=timeline_index, y=df['Close'].squeeze(), mode='lines',
+                        name='Close Price', line=dict(color='#00FFCC', width=2)
+                    ))
+
+                # Dynamic Timeline Intervals
+                target_tf = st.session_state['last_timeframe']
+                if target_tf == "1M" and not use_custom_dates:
+                    xaxis_config = dict(type='date', tickmode='linear', dtick=86400000 * 7, tickformat='%b %d', rangebreaks=[dict(bounds=["sat", "mon"])])
+                elif target_tf == "YTD" and not use_custom_dates:
+                    xaxis_config = dict(type='date', tickmode='linear', dtick="M1", tickformat='%b %y', rangebreaks=[dict(bounds=["sat", "mon"])])
+                else:
+                    xaxis_config = dict(type='date', tickmode='auto', nticks=8, rangebreaks=[dict(bounds=["sat", "mon"])])
+
+                fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=20, r=20, t=10, b=20), height=500, xaxis=xaxis_config)
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Volume Panel
+                st.subheader("Trading Volume")
+                vol_fig = go.Figure(data=[go.Bar(x=timeline_index, y=df['Volume'].squeeze(), marker_color='royalblue')])
+                vol_fig.update_layout(template="plotly_dark", height=200, margin=dict(l=20, r=20, t=10, b=10), xaxis=xaxis_config)
+                st.plotly_chart(vol_fig, use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("Company Profile")
+                st.write(stock_info.get('longBusinessSummary', "No summary available."))
+
+        except Exception as e:
+            st.error(f"Error executing viewport load: {e}")
+    else:
+        st.info(f"💡 Input matrix shifted! Click 'Fetch & Update Data' at the top of the sidebar to load the timeline for {ticker}.")
+
+# =====================================================================
+# MODE 2: MULTI-TICKER COMPARISON
+# =====================================================================
+else:
+    st.subheader("⚔️ Relative Performance Comparison")
+    st.markdown("Type and add multiple tickers below to compare their cumulative returns over time.")
+    
+    tickers_input = ticker_container.text_input("Enter Tickers (separated by commas)", value=st.session_state['last_multi_tickers'])
+    ticker_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    
+    if tickers_input != st.session_state['last_multi_tickers']:
+        st.session_state['data_dirty'] = True
+
+    if use_custom_dates:
+        start_date = sidebar_start
+        end_date_input = sidebar_end
+    else:
+        end_date_input = datetime.today()
+        start_date = end_date_input - timedelta(days=365)
+        
+    if run_analysis or not st.session_state['data_dirty']:
+        if run_analysis:
+            st.session_state['last_multi_tickers'] = tickers_input
+            st.session_state['data_dirty'] = False
+            
+        if ticker_list:
+            try:
+                with st.spinner("Fetching comparative market data..."):
+                    df_multi = load_multi_data(ticker_list, start_date, end_date_input)
+                
+                if not df_multi.empty:
+                    if isinstance(df_multi.columns, pd.MultiIndex):
+                        df_multi.columns = df_multi.columns.get_level_values(1) if 'Close' in df_multi.columns.get_level_values(0) else df_multi.columns.get_level_values(0)
+                    
+                    if isinstance(df_multi, pd.Series):
+                        df_multi = df_multi.to_frame(name=ticker_list[0])
+                    
+                    df_multi = df_multi.dropna(how='all')
+                    df_normalized = (df_multi.ffill().bfill() / df_multi.ffill().bfill().iloc[0] - 1) * 100
+                    
+                    comp_fig = go.Figure()
+                    for asset in df_normalized.columns:
+                        comp_fig.add_trace(go.Scatter(x=df_normalized.index, y=df_normalized[asset], mode='lines', name=asset, line=dict(width=2)))
+                    
+                    comp_fig.update_layout(
+                        template="plotly_dark", xaxis_title="Date", yaxis_title="Cumulative Return (%)",
+                        hovermode="x unified", height=600, margin=dict(l=20, r=20, t=30, b=20), yaxis=dict(tickformat="+.1f%")
+                    )
+                    st.plotly_chart(comp_fig, use_container_width=True)
+                    
+                    st.subheader("Performance Summary Breakdown")
+                    final_returns = df_normalized.iloc[-1]
+                    summary_data = []
+                    for asset in final_returns.index:
+                        summary_data.append({"Ticker": asset, "Total Return Since Start Date": f"{final_returns[asset]:+.2f}%"})
+                    st.table(pd.DataFrame(summary_data))
+                else:
+                    st.warning("No data found for the provided symbols.")
+            except Exception as e:
+                st.error(f"Error executing multi-ticker build: {e}")
+    else:
+        st.info("💡 Tickers changed! Click 'Fetch & Update Data' at the top of the sidebar to generate the new layout metrics.")
