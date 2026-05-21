@@ -35,7 +35,7 @@ st.sidebar.markdown("---")
 run_analysis = st.sidebar.button("🔍 Run Financial Analysis", use_container_width=True)
 
 # --- Helper Functions with Native Adaptive Resolution ---
-@st.cache_data(ttl=3600)  # Increased cache to 1 hour to protect shared cloud IP limits
+@st.cache_data(ttl=3600)  # 1-hour memory cache protects shared cloud IP limits
 def load_single_data(symbol, start, end):
     stock_data = yf.download(symbol, start=start, end=end, interval="1d")
     
@@ -67,7 +67,6 @@ if app_mode == "Single Ticker Lookup":
         chart_type = st.radio("Chart Type", ["Candlestick", "Line"], horizontal=True, label_visibility="collapsed")
         
     with time_col2:
-        # Removed 1D and 1W to ensure full structural stability
         timeframe = st.segmented_control(
             "Timeframe",
             options=["1M", "YTD", "1Y", "5Y", "MAX"],
@@ -117,13 +116,12 @@ if app_mode == "Single Ticker Lookup":
                 col3.metric("Market Cap", f"${stock_info.get('marketCap', 0):,}")
                 col4.metric("52 Week High", f"{stock_info.get('fiftyTwoWeekHigh', 0):,.2f} {currency}")
 
-                # --- Main Chart Render ---
+                # --- Main Chart Render (Native Timeline Display) ---
                 fig = go.Figure()
-                x_axis_labels = df.index.strftime('%Y-%m-%d')
                 
                 if chart_type == "Candlestick":
                     fig.add_trace(go.Candlestick(
-                        x=x_axis_labels, 
+                        x=df.index,  # Use raw datetimes so Plotly understands chronological placement
                         open=df['Open'].squeeze(), 
                         high=df['High'].squeeze(), 
                         low=df['Low'].squeeze(), 
@@ -132,7 +130,7 @@ if app_mode == "Single Ticker Lookup":
                     ))
                 else:
                     fig.add_trace(go.Scatter(
-                        x=x_axis_labels, 
+                        x=df.index, 
                         y=df['Close'].squeeze(), 
                         mode='lines', 
                         name='Close Price', 
@@ -144,18 +142,28 @@ if app_mode == "Single Ticker Lookup":
                     xaxis_rangeslider_visible=False, 
                     margin=dict(l=20, r=20, t=10, b=20), 
                     height=500,
-                    xaxis=dict(type='category', tickmode='auto', nticks=8, tickangle=-45)
+                    xaxis=dict(
+                        type='date',          # Formats as an organic timeline layout
+                        tickformat='%b %d',   # Forces native display to show clean strings like "Apr 23"
+                        tickmode='auto',
+                        nticks=8
+                    )
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Trading Volume
                 st.subheader("Trading Volume")
-                vol_fig = go.Figure(data=[go.Bar(x=x_axis_labels, y=df['Volume'].squeeze(), marker_color='royalblue')])
+                vol_fig = go.Figure(data=[go.Bar(x=df.index, y=df['Volume'].squeeze(), marker_color='royalblue')])
                 vol_fig.update_layout(
                     template="plotly_dark", 
                     height=200, 
                     margin=dict(l=20, r=20, t=10, b=10),
-                    xaxis=dict(type='category', tickmode='auto', nticks=8, tickangle=-45)
+                    xaxis=dict(
+                        type='date',
+                        tickformat='%b %d',
+                        tickmode='auto',
+                        nticks=8
+                    )
                 )
                 st.plotly_chart(vol_fig, use_container_width=True)
 
